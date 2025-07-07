@@ -27,12 +27,12 @@
 ```javascript
 // 生产环境配置
 const PRODUCTION_CONFIG = {
-  PROJECT_ID: 'cy-aispeci-demo',
-  AGENT_ID: 'deepvo_1743070579556',
-  LOCATION: 'global',
-  API_ENDPOINT: 'dialogflow.googleapis.com:443',
-  API_VERSION: 'v3',
-  LANGUAGE_CODE: 'zh-cn'
+  PROJECT_ID='cy-aispeci-demo',
+  AGENT_ID='64be8e0e-00f6-4f88-bae4-c97172ad4c67',
+  LOCATION='global',
+  LANGUAGE_CODE='zh-cn',
+  REACT_APP_PORT='3000',
+  API_PORT='5002'
 };
 
 // 完整API路径

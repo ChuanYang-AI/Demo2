@@ -97,71 +97,245 @@
 
 ## 4. 输出过滤机制
 
-### 4.1 产品推荐内容安全过滤
-- **商业合规性检查**：确保所有产品推荐符合相关法律法规和行业标准
-- **价格信息验证**：实时验证产品价格、促销信息的准确性，防止误导用户
-- **库存状态校验**：确保推荐的产品具有真实的库存，避免推荐缺货商品
-- **品牌授权验证**：验证推荐产品的品牌授权和销售资质
+### 4.1 多层防御策略
+通过四层机制来避免agent输出有害信息。
 
-### 4.2 推荐准确性与可信度保障
-- **产品信息一致性**：确保推荐内容与官方产品数据库完全一致
-- **实时数据同步**：建立实时数据同步机制，保证价格、库存、规格等信息的时效性
-- **多维度验证**：通过产品规格、用户评价、专家评测等多个维度验证推荐的合理性
-- **推荐理由透明化**：为每个推荐提供清晰的理由说明，增强用户信任度
+| 阶段 | 防御目标 | 实施方式 |
+|------|----------|----------|
+| 知识库构建前 | 源数据清洗，剔除敏感内容 | NLP过滤、人工复审、关键词排查 |
+| 知识库构建时 | 向量生成前清洗，每段可打标签 | 文本分段级检测 + 标签辅助筛选 |
+| Agent设置 | 避免输出任意内容 | 设置为只针对知识库内容进行回答 |
+| LLM响应阶段 | 过滤掉支持库中遗漏的有害信息 | 通过提示词让大模型避免输出某些类型的信息 |
 
-### 4.3 输出质量控制
-```python
-class OutputFilter:
-    """输出过滤器类，确保AI生成内容的安全性和准确性"""
+### 4.2 技术实现细节
+
+#### 4.2.1 知识库构建前的数据清洗
+```typescript
+interface DataCleaningConfig {
+  sensitiveWords: string[];
+  contentFilters: RegExp[];
+  manualReviewThreshold: number;
+}
+
+class PreProcessingFilter {
+  private config: DataCleaningConfig;
+  
+  constructor(config: DataCleaningConfig) {
+    this.config = config;
+  }
+  
+  /**
+   * 对原始数据进行预处理清洗
+   * @param rawData 原始数据内容
+   * @returns 清洗后的数据和标记信息
+   */
+  async cleanRawData(rawData: string): Promise<{
+    cleanedData: string;
+    flagged: boolean;
+    issues: string[];
+  }> {
+    const issues: string[] = [];
+    let cleanedData = rawData;
+    let flagged = false;
     
-    def __init__(self):
-        self.sensitive_words = self.load_sensitive_words()
-        self.safety_classifier = self.load_safety_model()
+    // NLP过滤检测
+    const nlpResults = await this.nlpFilter(rawData);
+    if (nlpResults.hasSensitiveContent) {
+      issues.push('检测到敏感内容');
+      flagged = true;
+    }
     
-    def filter_content(self, generated_text: str, context: dict) -> dict:
-        """
-        对AI生成的内容进行多层过滤
-        
-        Args:
-            generated_text: AI生成的原始文本
-            context: 对话上下文信息
-            
-        Returns:
-            dict: 包含过滤结果和安全评分的字典
-        """
-        result = {
-            'filtered_text': generated_text,
-            'safety_score': 1.0,
-            'is_safe': True,
-            'filter_actions': []
-        }
-        
-        # 敏感词过滤
-        if self.contains_sensitive_words(generated_text):
-            result['filtered_text'] = self.mask_sensitive_words(generated_text)
-            result['filter_actions'].append('sensitive_word_masking')
-            result['safety_score'] *= 0.8
-        
-        # 语义安全检测
-        safety_score = self.safety_classifier.predict(generated_text)
-        if safety_score < 0.7:
-            result['is_safe'] = False
-            result['safety_score'] = safety_score
-            result['filter_actions'].append('semantic_safety_rejection')
-        
-        # 信息准确性验证
-        if not self.verify_factual_accuracy(generated_text, context):
-            result['filtered_text'] = self.add_disclaimer(result['filtered_text'])
-            result['filter_actions'].append('accuracy_disclaimer')
-            result['safety_score'] *= 0.9
-        
-        return result
+    // 关键词排查
+    for (const word of this.config.sensitiveWords) {
+      if (rawData.includes(word)) {
+        issues.push(`包含敏感词: ${word}`);
+        cleanedData = cleanedData.replace(new RegExp(word, 'gi'), '[已过滤]');
+        flagged = true;
+      }
+    }
+    
+    return { cleanedData, flagged, issues };
+  }
+  
+  private async nlpFilter(text: string): Promise<{ hasSensitiveContent: boolean }> {
+    // 实现NLP敏感内容检测逻辑
+    return { hasSensitiveContent: false };
+  }
+}
 ```
 
-### 4.4 实时监控与告警
-- **异常检测**：实时监控输出内容的异常模式
-- **人工审核触发**：当安全评分低于阈值时自动触发人工审核
-- **日志记录**：详细记录所有过滤操作和决策过程
+#### 4.2.2 知识库构建时的分段检测
+```typescript
+interface SegmentTag {
+  type: 'safe' | 'review' | 'restricted';
+  confidence: number;
+  categories: string[];
+}
+
+class SegmentProcessor {
+  /**
+   * 对文本进行分段处理并打标签
+   * @param text 输入文本
+   * @returns 分段结果和标签信息
+   */
+  async processSegments(text: string): Promise<{
+    segments: Array<{
+      content: string;
+      tag: SegmentTag;
+      vectorEmbedding?: number[];
+    }>;
+  }> {
+    const segments = this.splitIntoSegments(text);
+    const processedSegments = [];
+    
+    for (const segment of segments) {
+      const tag = await this.analyzeSegment(segment);
+      const result = {
+        content: segment,
+        tag,
+        vectorEmbedding: tag.type === 'safe' ? await this.generateEmbedding(segment) : undefined
+      };
+      processedSegments.push(result);
+    }
+    
+    return { segments: processedSegments };
+  }
+  
+  private splitIntoSegments(text: string): string[] {
+    // 实现文本分段逻辑
+    return text.split('\n\n').filter(segment => segment.trim().length > 0);
+  }
+  
+  private async analyzeSegment(segment: string): Promise<SegmentTag> {
+    // 实现分段分析逻辑
+    return {
+      type: 'safe',
+      confidence: 0.95,
+      categories: ['product_info']
+    };
+  }
+  
+  private async generateEmbedding(text: string): Promise<number[]> {
+    // 生成向量嵌入
+    return [];
+  }
+}
+```
+
+#### 4.2.3 Agent设置限制
+```typescript
+interface AgentConfig {
+  responseScope: 'knowledge_base_only' | 'general';
+  allowedTopics: string[];
+  restrictedTopics: string[];
+  confidenceThreshold: number;
+}
+
+class AgentController {
+  private config: AgentConfig;
+  
+  constructor(config: AgentConfig) {
+    this.config = config;
+  }
+  
+  /**
+   * 控制Agent响应范围
+   * @param query 用户查询
+   * @param knowledgeBaseResults 知识库检索结果
+   * @returns 是否允许响应
+   */
+  async shouldRespond(query: string, knowledgeBaseResults: any[]): Promise<{
+    allowed: boolean;
+    reason?: string;
+  }> {
+    // 仅基于知识库内容回答
+    if (this.config.responseScope === 'knowledge_base_only') {
+      if (knowledgeBaseResults.length === 0) {
+        return {
+          allowed: false,
+          reason: '未在知识库中找到相关信息'
+        };
+      }
+      
+      const maxConfidence = Math.max(...knowledgeBaseResults.map(r => r.confidence));
+      if (maxConfidence < this.config.confidenceThreshold) {
+        return {
+          allowed: false,
+          reason: '知识库匹配置信度不足'
+        };
+      }
+    }
+    
+    return { allowed: true };
+  }
+}
+```
+
+#### 4.2.4 LLM响应阶段过滤
+```typescript
+class LLMResponseFilter {
+  private blockedPatterns: RegExp[];
+  private safetyPrompts: string[];
+  
+  constructor() {
+    this.blockedPatterns = [
+      /个人隐私信息/gi,
+      /敏感政治话题/gi,
+      /不当商业推广/gi
+    ];
+    
+    this.safetyPrompts = [
+      "请确保回答仅基于提供的知识库内容",
+      "避免输出任何可能包含敏感信息的内容",
+      "如果问题超出知识库范围，请明确告知用户"
+    ];
+  }
+  
+  /**
+   * 对LLM生成的响应进行最终过滤
+   * @param response LLM原始响应
+   * @param context 对话上下文
+   * @returns 过滤后的响应
+   */
+  async filterResponse(response: string, context: any): Promise<{
+    filteredResponse: string;
+    blocked: boolean;
+    warnings: string[];
+  }> {
+    const warnings: string[] = [];
+    let filteredResponse = response;
+    let blocked = false;
+    
+    // 检查是否包含被阻止的模式
+    for (const pattern of this.blockedPatterns) {
+      if (pattern.test(response)) {
+        warnings.push(`检测到不当内容: ${pattern.source}`);
+        blocked = true;
+      }
+    }
+    
+    if (blocked) {
+      filteredResponse = "抱歉，我无法提供相关信息。请尝试询问其他产品相关问题。";
+    }
+    
+    return { filteredResponse, blocked, warnings };
+  }
+  
+  /**
+   * 生成安全提示词
+   * @returns 安全提示词字符串
+   */
+  generateSafetyPrompt(): string {
+    return this.safetyPrompts.join('\n');
+  }
+}
+```
+
+### 4.3 监控与优化
+- **实时监控**：监控各阶段过滤效果和误判率
+- **人工审核流程**：建立人工审核和标注机制
+- **持续优化**：基于反馈数据不断优化过滤策略
+- **合规检查**：定期进行合规性审查和风险评估
 
 ## 5. 人工监督和干预系统
 

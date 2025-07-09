@@ -24,7 +24,6 @@
 
 ### 1. 克隆仓库
 ```bash
-git clone git@gitlab.liebaopay.com:ai/gcp-demo-agent.git
 cd gcp-demo-agent
 ```
 
@@ -99,4 +98,20 @@ npm run build
 确保在Google Cloud控制台中为您的项目启用了Dialogflow API：
 - 访问 [API库](https://console.cloud.google.com/apis/library)
 - 搜索"Dialogflow API"
-- 点击"启用" 
+- 点击"启用"
+
+## 许可证
+
+本项目采用MIT许可证。详情请参见 [LICENSE](LICENSE) 文件。
+
+### 第三方依赖
+
+本项目使用了多个开源库，详细的第三方依赖许可证信息请参见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+
+## 合规声明
+
+本项目代码分为两部分：
+1. **原创代码**: 由本组织完全原创开发的核心业务逻辑
+2. **第三方依赖**: 使用开源库，均按照其原始许可证条款使用，未进行任何修改
+
+所有代码均符合相关许可证要求和合规标准。
